@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>متجر الألعاب</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f5f5f5; padding: 20px; }
+        .container { max-width: 700px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); margin-bottom: 20px; }
+        .btn { padding: 10px; border: none; background: #007bff; color: white; cursor: pointer; margin-top: 10px; }
+        .btn:hover { background: #0056b3; }
+        select, input { padding: 5px; margin-top: 5px; width: 95%; }
+        .order-item { border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .chat-icon { position: fixed; bottom: 20px; right: 20px; font-size: 40px; cursor: pointer; }
+        .chat-container { display: none; position: fixed; bottom: 80px; right: 20px; width: 300px; background: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); padding: 10px; }
+        .chat-messages { max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; }
+        .message { margin: 5px 0; text-align: right; }
+        .admin-message { text-align: left; color: #007bff; }
+        .chat-input input[type="file"] { display: none; }
+        .chat-input .buttons { display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+
+    <!-- اختيار اللعبة والعرض وطريقة الدفع -->
+    <div class="container">
+        <h2>🛒 شراء عرض</h2>
+        
+        <label>🎮 اختر اللعبة:</label>
+        <select id="gameList" onchange="loadOffers()"></select>
+
+        <label>🆔 أدخل معرف ID لعبتك:</label>
+        <input type="text" id="gameIdInput" placeholder="أدخل معرف ID الخاص بك في اللعبة">
+
+        <label>📢 اختر العرض:</label>
+        <select id="offerList"></select>
+
+        <label>💳 اختر طريقة الدفع:</label>
+        <select id="paymentMethodList" onchange="showPaymentDetails()"></select>
+
+        <label>🆔 أدخل معرف طريقة الدفع الخاصة بك:</label>
+        <input type="text" id="paymentIdInput" placeholder="أدخل معرف طريقة الدفع">
+
+        <p id="paymentDetails"><b>📌 تفاصيل الحساب:</b> لم يتم تحديد طريقة دفع بعد</p>
+
+        <button class="btn" onclick="placeOrder()">✅ تقديم الطلب</button>
+    </div>
+
+    <!-- الطلبات السابقة -->
+    <div class="container">
+        <h2>📦 طلباتي</h2>
+        <div id="ordersList"></div>
+    </div>
+
+    <!-- أيقونة الرسائل ونظام المحادثة -->
+    <div class="chat-icon" onclick="toggleChat()">💬</div>
+    <div class="chat-container" id="chatContainer">
+        <h3>📩 محادثة مع الدعم</h3>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+            <input type="text" id="chatInput" placeholder="اكتب رسالتك هنا...">
+            <input type="file" id="fileInput" accept="image/*,.pdf">
+            <div class="buttons">
+                <button class="btn" onclick="sendMessage()">إرسال</button>
+                <button class="btn" onclick="document.getElementById('fileInput').click()">📎</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var firebaseConfig = { 
+            apiKey: "AIzaSyApU1ph6_FlzjpkmykJR0tXnUbNUr4RF04",
+            authDomain: "amine-tv-live.firebaseapp.com",
+            databaseURL: "https://amine-tv-live-default-rtdb.firebaseio.com",
+            projectId: "amine-tv-live"
+        };
+        firebase.initializeApp(firebaseConfig);
+        var database = firebase.database();
+        var storage = firebase.storage();
+        let userId = "user_123"; // يمكن استبداله بنظام تسجيل دخول
+        let userPaymentId = null;
+
+        // تحميل الألعاب
+        function loadGames() {
+            let gameSelect = document.getElementById("gameList");
+            gameSelect.innerHTML = "<option value=''>اختر لعبة</option>";
+
+            database.ref("games").on("value", snapshot => {
+                snapshot.forEach(gameSnap => {
+                    let game = gameSnap.val();
+                    let option = document.createElement("option");
+                    option.value = gameSnap.key;
+                    option.textContent = game.name;
+                    gameSelect.appendChild(option);
+                });
+            });
+        }
+
+        // تحميل العروض بناءً على اللعبة المحددة
+        function loadOffers() {
+            let offerSelect = document.getElementById("offerList");
+            offerSelect.innerHTML = "<option value=''>اختر عرضًا</option>";
+            let selectedGame = document.getElementById("gameList").value;
+
+            if (selectedGame === "") return;
+
+            database.ref("offers").orderByChild("gameId").equalTo(selectedGame).on("value", snapshot => {
+                snapshot.forEach(offerSnap => {
+                    let offer = offerSnap.val();
+                    let option = document.createElement("option");
+                    option.value = offerSnap.key;
+                    option.textContent = `${offer.name} - ${offer.price}$`;
+                    offerSelect.appendChild(option);
+                });
+            });
+        }
+
+        // تحميل طرق الدفع
+        function loadPaymentMethods() {
+            let paymentSelect = document.getElementById("paymentMethodList");
+            paymentSelect.innerHTML = "<option value=''>اختر طريقة دفع</option>";
+
+            database.ref("payment_methods").on("value", snapshot => {
+                snapshot.forEach(paymentSnap => {
+                    let payment = paymentSnap.val();
+                    let option = document.createElement("option");
+                    option.value = paymentSnap.key;
+                    option.textContent = `${payment.name}`;
+                    option.dataset.account = payment.account;
+                    paymentSelect.appendChild(option);
+                });
+            });
+        }
+
+        // عرض تفاصيل الحساب عند اختيار طريقة الدفع
+        function showPaymentDetails() {
+            let paymentSelect = document.getElementById("paymentMethodList");
+            let selectedOption = paymentSelect.options[paymentSelect.selectedIndex];
+            let paymentDetails = document.getElementById("paymentDetails");
+
+            if (selectedOption.value !== "") {
+                paymentDetails.innerHTML = `<b>📌 أرسل المبلغ إلى الحساب:</b> ${selectedOption.dataset.account}`;
+            } else {
+                paymentDetails.innerHTML = `<b>📌 تفاصيل الحساب:</b> لم يتم تحديد طريقة دفع بعد`;
+            }
+        }
+
+        // تقديم طلب
+        function placeOrder() {
+            let gameId = document.getElementById("gameList").value;
+            let gameUserId = document.getElementById("gameIdInput").value.trim();
+            let offerId = document.getElementById("offerList").value;
+            let paymentId = document.getElementById("paymentMethodList").value;
+            let tempUserPaymentId = document.getElementById("paymentIdInput").value.trim();
+
+            if (gameId === "" || gameUserId === "" || offerId === "" || paymentId === "" || tempUserPaymentId === "") {
+                alert("يرجى إدخال جميع البيانات المطلوبة!");
+                return;
+            }
+            userPaymentId = tempUserPaymentId;
+            let orderId = database.ref("orders").push().key;
+            let timestamp = Date.now();
+            let newOrder = {
+                userId: userId,
+                gameId: gameId,
+                gameUserId: gameUserId,
+                offerId: offerId,
+                paymentMethod: paymentId,
+                userPaymentId: userPaymentId,
+                status: "في انتظار الموافقة",
+                timestamp: timestamp
+            };
+
+            database.ref(`orders/${orderId}`).set(newOrder)
+                .then(() => {
+                    alert("تم تقديم الطلب بنجاح!");
+                    document.getElementById("gameIdInput").value = "";
+                    document.getElementById("paymentIdInput").value = "";
+                })
+                .catch(error => alert("خطأ: " + error.message));
+        }
+
+        // تحميل الطلبات السابقة
+        function loadOrders() {
+            let ordersList = document.getElementById("ordersList");
+            ordersList.innerHTML = "<p>جاري تحميل الطلبات...</p>";
+
+            let games = {};
+            let paymentMethods = {};
+
+            database.ref("games").once("value", snapshot => {
+                snapshot.forEach(gameSnap => {
+                    games[gameSnap.key] = gameSnap.val().name;
+                });
+
+                database.ref("payment_methods").once("value", paymentSnapshot => {
+                    paymentSnapshot.forEach(paymentSnap => {
+                        paymentMethods[paymentSnap.key] = paymentSnap.val().name;
+                    });
+
+                    database.ref("orders").orderByChild("userId").equalTo(userId).on("value", snapshot => {
+                        ordersList.innerHTML = "";
+                        if (!snapshot.exists()) {
+                            ordersList.innerHTML = "<p>لا توجد طلبات سابقة.</p>";
+                            return;
+                        }
+
+                        let ordersArray = [];
+                        snapshot.forEach(orderSnap => {
+                            ordersArray.push({ key: orderSnap.key, ...orderSnap.val() });
+                        });
+
+                        ordersArray.sort((a, b) => b.timestamp - a.timestamp);
+
+                        ordersArray.forEach(order => {
+                            let gameName = games[order.gameId] || "غير معروف";
+                            let paymentMethodName = paymentMethods[order.paymentMethod] || "غير معروف";
+
+                            let orderDiv = document.createElement("div");
+                            orderDiv.className = "order-item";
+                            orderDiv.innerHTML = `
+                                <p>🆔 <b>رقم المعاملة:</b> ${order.timestamp}</p>
+                                <p>🎮 <b>لعبة:</b> ${gameName}</p>
+                                <p>🆔 <b>معرف ID اللاعب:</b> ${order.gameUserId}</p>
+                                <p>💳 <b>طريقة الدفع:</b> ${paymentMethodName}</p>
+                                <p>🆔 <b>معرف طريقة الدفع الخاصة بالمستخدم:</b> ${order.userPaymentId}</p>
+                                <p>📅 <b>التاريخ:</b> ${new Date(order.timestamp).toLocaleString()}</p>
+                                <p>⚡ <b>الحالة:</b> ${order.status}</p>
+                            `;
+                            ordersList.appendChild(orderDiv);
+                        });
+                    }, error => {
+                        ordersList.innerHTML = `<p style="color: red;">خطأ في جلب الطلبات: ${error.message}</p>`;
+                    });
+                });
+            });
+        }
+
+        // فتح/إغلاق نافذة المحادثة
+        function toggleChat() {
+            let chatContainer = document.getElementById("chatContainer");
+            chatContainer.style.display = chatContainer.style.display === "block" ? "none" : "block";
+            if (chatContainer.style.display === "block") loadChat();
+        }
+
+        // تحميل الرسائل من قاعدة البيانات
+        function loadChat() {
+            let chatMessages = document.getElementById("chatMessages");
+            chatMessages.innerHTML = "";
+            database.ref(`chat/${userId}`).on("value", snapshot => {
+                chatMessages.innerHTML = "";
+                if (!snapshot.exists()) {
+                    chatMessages.innerHTML = "<p>لا توجد رسائل بعد.</p>";
+                    return;
+                }
+                snapshot.forEach(msgSnap => {
+                    let msg = msgSnap.val();
+                    let msgDiv = document.createElement("div");
+                    msgDiv.className = "message";
+                    if (msg.sender === "admin") msgDiv.className += " admin-message";
+                    msgDiv.textContent = `${msg.sender === "admin" ? "الدعم" : "أنا"}: ${msg.text}`;
+                    if (msg.fileUrl) {
+                        if (msg.fileUrl.endsWith(".pdf")) {
+                            msgDiv.innerHTML += `<br><a href="${msg.fileUrl}" target="_blank">ملف PDF</a>`;
+                        } else {
+                            msgDiv.innerHTML += `<br><img src="${msg.fileUrl}" style="max-width: 100%;">`;
+                        }
+                    }
+                    chatMessages.appendChild(msgDiv);
+                });
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+        }
+
+        // إرسال رسالة
+        function sendMessage() {
+            let chatInput = document.getElementById("chatInput");
+            let fileInput = document.getElementById("fileInput");
+            let messageText = chatInput.value.trim();
+            let file = fileInput.files[0];
+            let timestamp = Date.now();
+
+            if (!messageText && !file) return;
+            if (!userPaymentId) {
+                alert("يرجى تقديم طلب أولاً لتحديد معرف طريقة الدفع!");
+                return;
+            }
+
+            let newMessage = {
+                sender: userId,
+                paymentId: userPaymentId,
+                text: messageText || "تم إرسال ملف فقط",
+                timestamp: timestamp
+            };
+
+            if (file) {
+                let storageRef = storage.ref(`chat_files/${userId}/${timestamp}_${file.name}`);
+                storageRef.put(file).then(snapshot => {
+                    snapshot.ref.getDownloadURL().then(url => {
+                        newMessage.fileUrl = url;
+                        saveMessage(newMessage);
+                    });
+                }).catch(error => alert("خطأ في رفع الملف: " + error.message));
+            } else {
+                saveMessage(newMessage);
+            }
+        }
+
+        // حفظ الرسالة في قاعدة البيانات
+        function saveMessage(newMessage) {
+            database.ref(`chat/${userId}`).push(newMessage)
+                .then(() => {
+                    database.ref("admin_chat").push(newMessage); // إرسال فوري للأدمن
+                    document.getElementById("chatInput").value = "";
+                    document.getElementById("fileInput").value = "";
+                })
+                .catch(error => alert("خطأ في إرسال الرسالة: " + error.message));
+        }
+
+        // استدعاء الدوال عند تحميل الصفحة
+        loadGames();
+        loadPaymentMethods();
+        loadOrders();
+    </script>
+
+</body>
+</html>

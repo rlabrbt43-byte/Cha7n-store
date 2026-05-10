@@ -1,0 +1,29 @@
+{
+  "name": "shaheen-store",
+  "version": "1.0.0",
+  "description": "متجر شحن ألعاب احترافي - شحن ستور",
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build --workspaces",
+    "build:client": "npm run build -w client",
+    "build:server": "npm run build -w server",
+    "start": "npm run start -w server",
+    "install:all": "npm install && npm install -w client && npm install -w server"
+  },
+  "keywords": [
+    "gaming",
+    "store",
+    "charge",
+    "games",
+    "arabic"
+  ],
+  "author": "Shaheen Store Team",
+  "license": "MIT"
+}
